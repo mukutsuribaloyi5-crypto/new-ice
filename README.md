@@ -1,99 +1,99 @@
-# Ice Cold Auto Aircon — React + Node.js
+﻿# Ice Cold Auto Aircon — React + Node.js + MongoDB
 
-An updated, deployment-ready **React (Vite) frontend** and **Node.js / Express / SQLite backend**, converted from the provided Ice Cold Auto Aircon website. The original navy/blue design, copy, prices, FAQ content and admin functionality are retained.
-
-## Requirements
-
-- **Node.js 20.19+ or 22+** and npm
-- A **persistent writable disk** for SQLite in production
-- HTTPS in production (typically provided by your hosting platform / reverse proxy)
+React (Vite) frontend and Node/Express backend. MongoDB stores bookings, availability, reviews, catalog items, admin accounts, and sessions. No local database or Render persistent disk is needed.
 
 ## Local development
 
-```bash
-npm install
-cp .env.example .env
-# Edit .env to set strong ADMIN_PASSWORD and SESSION_SECRET
+Requires Node.js 22+ and MongoDB Atlas, or a local MongoDB replica set (standalone MongoDB does not support the booking transactions).
+
+```sh
+npm ci
+# Copy .env.example to .env and supply your own values.
 npm run dev
 ```
 
-- Public website: **http://localhost:5173**
-- Admin: **http://localhost:5173/admin**
-- Backend API: **http://localhost:3001/api/health**
+Set `MONGODB_URI`, `ADMIN_PASSWORD`, and `SESSION_SECRET` in `.env`. Keep it private. First startup creates the admin account and the default services/packages. Subsequent restarts preserve edits and do not reset the password or restore deleted catalog items.
 
-Vite proxies `/api` to Express during development, so requests/cookies stay on the same browser origin.
+- Frontend: http://localhost:5173
+- Admin: http://localhost:5173/admin
+- Backend health: http://localhost:3001/api/health
 
-## Production (one Node service)
+## MongoDB Atlas setup
 
-```bash
-npm install
-npm run build
-# Supply environment variables; do not use placeholder credentials
-NODE_ENV=production PORT=3000 npm start
+1. Create an Atlas cluster (the free option can be used).
+2. Under Database Access, create a database user with read/write access to the `ice_cold` database. This is separate from your Atlas account login.
+3. Under Network Access, allow your Render service's outbound IP ranges and your local development IP. Find the outbound ranges in Render's service dashboard.
+4. Choose Connect → Drivers → Node.js and copy the connection string. Replace the username/password placeholders; URL-encode special characters in credentials.
+5. Set `MONGODB_URI` to that connection string and `MONGODB_DB=ice_cold` in your environment. The app creates its collections and indexes automatically.
+
+Atlas replica-set transactions commit each booking and its slot reservation together. Cancelled bookings release their slots and cannot be reopened; submit a new booking instead. Session expiry is enforced on every lookup, with a MongoDB TTL index cleaning up expired records.
+
+## Render backend + Vercel frontend
+
+Create a Render **Web Service** connected to this repo, branch `main`:
+
+| Setting | Value |
+| --- | --- |
+| Runtime | Node |
+| Root Directory | Leave blank (repository root) |
+| Build Command | `npm ci --omit=dev` |
+| Start Command | `npm start` |
+| Health Check Path | `/api/health` |
+| Instance | Free is sufficient to run the backend; normal free-service sleep/usage limits apply |
+
+If Render selected Docker automatically, the existing Dockerfile also works without any disk. It builds a copy of the frontend as well; Vercel can still serve your public frontend.
+
+Set these variables in Render, not in Git:
+
+| Variable | Value |
+| --- | --- |
+| `NODE_VERSION` | `22` (Node runtime) |
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | Your Atlas connection string |
+| `MONGODB_DB` | `ice_cold` |
+| `ADMIN_USER` | Your initial admin username |
+| `ADMIN_PASSWORD` | A strong unique initial password |
+| `SESSION_SECRET` | A unique random secret of at least 32 characters |
+| `TRUST_PROXY` | `1` |
+
+Remove `DATABASE_PATH`. Let Render supply `PORT`. Do not attach a disk. Keep `SESSION_SECRET` stable across deploys to preserve logins. Changing `ADMIN_PASSWORD` in the environment does not reset an existing admin; use Admin → Account.
+
+After deployment, `https://YOUR-BACKEND.onrender.com/api/health` should return `{"status":"ok"}`. This endpoint checks MongoDB too; it returns HTTP 503 when the database is unavailable.
+
+The frontend uses relative `/api` requests. Add a Vercel rewrite **before** any SPA catch-all, using your actual Render hostname:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://YOUR-BACKEND.onrender.com/api/:path*" },
+    { "source": "/((?!api(?:/|$)).*)", "destination": "/index.html" }
+  ]
+}
 ```
 
-Open `http://localhost:3000` (in real deployment, use your HTTPS domain). The Node service serves the **compiled React build** and all `/api/*` endpoints, including `/admin` and React deep links.
+Keep any existing Vercel build/output settings. Redeploy Vercel after configuring the rewrite. Proxying `/api` keeps login cookies on the frontend origin; no cross-origin cookie or CORS configuration is needed. Verify login, refresh, logout, and booking submission through the Vercel URL.
 
-Important environment variables:
+## Combined deployment / Docker
 
-| Variable | Purpose |
-| --- | --- |
-| `NODE_ENV` | `production` in deployment |
-| `PORT` | Host-provided port; defaults to `3000` in production / `3001` in dev |
-| `SESSION_SECRET` | **Required in production**; unique secret of at least 32 characters |
-| `ADMIN_USER` | Initial admin user, default `admin` |
-| `ADMIN_PASSWORD` | **Required on first production run**; stored as a bcrypt hash in SQLite |
-| `DATABASE_PATH` | Optional full SQLite path; defaults to `./data/data.db` |
-| `TRUST_PROXY` | Number of trusted HTTPS proxies; default `1` in production |
-
-### Docker deployment
-
-```bash
-cp .env.example .env
-# Set NODE_ENV=production and strong ADMIN_PASSWORD and SESSION_SECRET
-# Set PORT=3000 (or remove PORT from .env when using Docker Compose)
+```sh
+npm ci
+npm run build
+npm start
+# Or, with your environment configured:
 docker compose up --build -d
 ```
 
-The Compose volume `icecold_data` persists the SQLite database across container restarts. For a public domain, configure HTTPS termination at a reverse proxy (Caddy, Nginx, hosting load balancer). Since admin sessions use `secure` cookies in production, admin login requires HTTPS externally.
+Express serves `dist/` when it exists. Production admin cookies require HTTPS at your hosting reverse proxy.
 
-**Platforms with ephemeral filesystems:** mount a persistent volume and set `DATABASE_PATH` to that volume. Without persistent storage, bookings, reviews, admin passwords, availability, and sessions will be lost on redeploy. For hosts without persistent disks use a managed database migration before launching. A free static-only host cannot run this backend.
+## Existing SQLite data
 
-## Existing site data / migration
+This change starts a new MongoDB database. It does not import existing SQLite records. Your ignored local `data/` directory is left intact as a backup. Do not delete it if you need historical bookings, reviews, or accounts; they require a separate data import. MongoDB admin credentials come from the first-run environment variables.
 
-The original ZIP includes a working SQLite database and `.env` containing potentially private data. **Those are deliberately NOT included in this converted ZIP.** The new project creates its own database with the original default services/packages on first start.
+## Validation
 
-To preserve existing bookings, reviews, admin account and availability: stop the original server, back up its database, and copy its **consistent** `data.db` into this project's `data/data.db` before starting (or set `DATABASE_PATH` to its location). SQLite WAL mode means that you should close the original app and checkpoint it safely before copying; copying only `data.db` while `data.db-wal` is active can lose records. Keep the old `.env` secrets private and rotate them if they were shared.
-
-## Features
-
-- Pages: Home, About, Services, Reviews, FAQs, Contact
-- Responsive hamburger navigation and legacy `.html` URL redirects
-- Live service/package prices administered through the backend
-- Booking form with available date/time slots (conflicting reservations rejected atomically)
-- Reviews sent for moderation; approved reviews shown publicly
-- Admin login/logout, bookings, appointment availability, review approval, service/package management and password change
-- HTTP security headers, admin sessions persisted to SQLite, CSRF header checks and rate-limits
-
-## Project layout
-
-```text
-client/                  React / Vite UI
-  src/pages/            Public React pages and Admin
-  src/components/       Navigation, catalogs and shared UI
-  public/logo.jpeg      Original image asset
-server/index.js         Express routes and production static hosting
-server/db.js            SQLite tables, migrations and initial products
-server/session-store.js Persistent admin sessions
-scripts/dev.mjs         Launches backend and frontend in development
-Dockerfile, compose.yaml Optional container deployment
-```
-
-## Checks
-
-```bash
+```sh
 npm test
 npm run build
 ```
 
-Use your browser to verify booking submission, admin login, availability, price changes and review approvals before going live. Set real branding/contact details if needed.
+Integration tests start a disposable local MongoDB replica set using `mongodb-memory-server`. The first run downloads a MongoDB server binary and requires internet access. They never use your Atlas database or local `.env` credentials.

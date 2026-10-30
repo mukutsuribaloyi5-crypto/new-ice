@@ -6,12 +6,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      DATABASE_PATH: /app/data/data.db
+      MONGODB_URI: ${MONGODB_URI:?Set your MongoDB Atlas connection string}
+      MONGODB_DB: ${MONGODB_DB:-ice_cold}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your shell or .env}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in your shell or .env}
-    volumes:
-      - icecold_data:/app/data
     restart: unless-stopped
-volumes:
-  icecold_data:

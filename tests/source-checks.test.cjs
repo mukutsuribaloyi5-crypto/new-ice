@@ -14,7 +14,10 @@ test('Node backend retains booking and admin API endpoints', () => {
   for (const endpoint of ['/api/bookings','/api/availability','/api/reviews','/api/admin/login']) assert.ok(src.includes(endpoint));
   assert.match(src, /express\.static\(dist/);
 });
-test('private files are excluded from published package', () => {
-  assert.ok(!fs.existsSync(path.join(root, '.env')));
-  assert.ok(!fs.existsSync(path.join(root, 'data', 'data.db')));
+test('private files are excluded from Git and Docker builds', () => {
+  const { execFileSync } = require('node:child_process');
+  for (const name of ['.env', 'data/data.db', '.local-run/dev.stdout.log']) {
+    assert.equal(execFileSync('git', ['check-ignore', name], { cwd: root, encoding: 'utf8' }).trim().replaceAll('\\', '/'), name);
+  }
+  for (const name of ['.env', 'data', '.local-run']) assert.ok(file('.dockerignore').split(/\r?\n/).includes(name));
 });

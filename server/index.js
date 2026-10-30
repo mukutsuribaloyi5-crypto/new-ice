@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
-const SQLiteSessionStore = require('./session-store');
+const MongoSessionStore = require('./session-store');
 
 const PROD = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT || (PROD ? 3000 : 3001));
@@ -38,9 +38,6 @@ app.use('/api', (req, res, next) => {
 if (PROD && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) {
   throw new Error('Production requires SESSION_SECRET with at least 32 characters.');
 }
-if (PROD && !db.prepare('SELECT 1 FROM admins').get() && !process.env.ADMIN_PASSWORD) {
-  throw new Error('Production first run requires ADMIN_PASSWORD in the environment.');
-}
 let secret = process.env.SESSION_SECRET;
 if (!secret) {
   secret = crypto.randomBytes(32).toString('hex');
@@ -48,41 +45,30 @@ if (!secret) {
 }
 app.use(session({
   name: 'icac.sid',
-  store: new SQLiteSessionStore(),
+  store: new MongoSessionStore(),
   secret,
   resave: false,
   saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'strict', secure: PROD, maxAge: 1000 * 60 * 60 * 8 },
 }));
 
-// ---- First-run admin account -------------------------------------------
-if (!db.prepare('SELECT 1 FROM admins').get()) {
-  const user = process.env.ADMIN_USER || 'admin';
-  const generated = !process.env.ADMIN_PASSWORD;
-  const pass = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
-  db.prepare('INSERT INTO admins (username, password_hash) VALUES (?, ?)')
-    .run(user, bcrypt.hashSync(pass, 12));
-  console.log(`Admin account created. Username: ${user}`);
-  if (generated) console.log(`Temporary password: ${pass}  (change it under Account after logging in)`);
-}
-
 // ---- Helpers -------------------------------------------------------------
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const requireAdmin = (req, res, next) =>
   req.session.adminId ? next() : res.status(401).json({ error: 'Not logged in' });
+const route = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const STATUSES = ['new', 'confirmed', 'completed', 'cancelled'];
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// ---- Public API ------------------------------------------------------------
-app.get('/api/services', (req, res) => {
-  const services = db.prepare(
-    'SELECT id, name, price FROM services WHERE active = 1 ORDER BY sort_order, id').all();
-  const packages = db.prepare(
-    'SELECT id, name, items, price FROM packages WHERE active = 1 ORDER BY sort_order, id').all()
-    .map(p => ({ ...p, items: p.items.split('\n').map(s => s.trim()).filter(Boolean) }));
-  res.json({ services, packages });
+app.get('/api/health', async (req, res) => {
+  try { await db.database().command({ ping: 1 }); res.json({ status: 'ok' }); }
+  catch { res.status(503).json({ status: 'unavailable' }); }
 });
+
+app.get('/api/services', route(async (req, res) => {
+  const services = await db.collection('services').find({ active: 1 }, { projection: { _id: 0, id: 1, name: 1, price: 1 } }).sort({ sort_order: 1, id: 1 }).toArray();
+  const packages = await db.collection('packages').find({ active: 1 }, { projection: { _id: 0, id: 1, name: 1, items: 1, price: 1 } }).sort({ sort_order: 1, id: 1 }).toArray();
+  res.json({ services, packages: packages.map(p => ({ ...p, items: p.items.split('\n').map(s => s.trim()).filter(Boolean) })) });
+}));
 
 const bookingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false,
@@ -100,41 +86,40 @@ const saNow = () => {
 };
 
 // Public: the free times customers can choose from
-app.get('/api/availability', (req, res) => {
+const futureSlots = () => {
   const now = saNow();
-  const rows = db.prepare(`SELECT id, date, start_time, end_time FROM availability
-    WHERE booking_id IS NULL AND (date > @d OR (date = @d AND start_time > @t))
-    ORDER BY date, start_time`).all({ d: now.date, t: now.time });
-  res.json(rows);
-});
+  return { $or: [{ date: { $gt: now.date } }, { date: now.date, start_time: { $gt: now.time } }] };
+};
+app.get('/api/availability', route(async (req, res) => {
+  res.json(await db.collection('availability').find({ booking_id: null, ...futureSlots() }, { projection: { _id: 0, id: 1, date: 1, start_time: 1, end_time: 1 } }).sort({ date: 1, start_time: 1 }).toArray());
+}));
 
-app.post('/api/bookings', bookingLimiter, (req, res) => {
+app.post('/api/bookings', bookingLimiter, route(async (req, res) => {
   const b = req.body || {};
   const d = {
     name: str(b.name, 100), phone: str(b.phone, 30), email: str(b.email, 150),
     make: str(b.make, 50), model: str(b.model, 50), year: str(b.year, 10),
     info: str(b.info, 2000),
   };
-  const slotId = Number.parseInt(b.slotId, 10);
+  const slotId = Number(b.slotId);
   const required = ['name', 'phone', 'email', 'make', 'model', 'year'];
-  if (required.some(k => !d[k]) || !slotId) return res.status(400).json({ error: 'Please fill in all required fields and choose a time.' });
+  if (required.some(k => !d[k]) || !Number.isSafeInteger(slotId) || slotId <= 0) return res.status(400).json({ error: 'Please fill in all required fields and choose a time.' });
   if (!/^\S+@\S+\.\S+$/.test(d.email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
 
-  // Reserve the time and save the booking together, so two people can't get the same time
-  const book = db.transaction(() => {
-    const slot = db.prepare('SELECT * FROM availability WHERE id = ? AND booking_id IS NULL').get(slotId);
+  // Both writes commit together; a racing request retries and sees the occupied slot.
+  const booked = await db.transaction(async session => {
+    const id = await db.nextId('bookings', session);
+    const slot = await db.collection('availability').findOneAndUpdate(
+      { id: slotId, booking_id: null, ...futureSlots() }, { $set: { booking_id: id } },
+      { session, returnDocument: 'after' });
     if (!slot) return false;
-    const now = saNow();
-    if (slot.date < now.date || (slot.date === now.date && slot.start_time <= now.time)) return false;
-    const info = db.prepare(`INSERT INTO bookings (name, phone, email, make, model, year, service_date, service_time, info)
-                VALUES (@name, @phone, @email, @make, @model, @year, @service_date, @service_time, @info)`)
-      .run({ ...d, service_date: slot.date, service_time: `${slot.start_time} – ${slot.end_time}` });
-    db.prepare('UPDATE availability SET booking_id = ? WHERE id = ?').run(Number(info.lastInsertRowid), slot.id);
+    await db.collection('bookings').insertOne({ id, ...d, service_date: slot.date,
+      service_time: `${slot.start_time} – ${slot.end_time}`, status: 'new', notes: '', created_at: new Date().toISOString() }, { session });
     return true;
   });
-  if (!book()) return res.status(409).json({ error: 'Sorry, that time has just been taken. Please choose another.' });
+  if (!booked) return res.status(409).json({ error: 'Sorry, that time has just been taken. Please choose another.' });
   res.status(201).json({ ok: true });
-});
+}));
 
 // ---- Admin auth ------------------------------------------------------------
 const loginLimiter = rateLimit({
@@ -142,11 +127,11 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again in 15 minutes.' },
 });
 
-app.post('/api/admin/login', loginLimiter, (req, res) => {
+app.post('/api/admin/login', loginLimiter, route(async (req, res) => {
   const username = str(req.body?.username, 50);
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
-  const row = db.prepare('SELECT * FROM admins WHERE username = ?').get(username);
-  if (!row || !bcrypt.compareSync(password, row.password_hash)) {
+  const row = await db.collection('admins').findOne({ username });
+  if (!row || !await bcrypt.compare(password, row.password_hash)) {
     return res.status(401).json({ error: 'Wrong username or password' });
   }
   req.session.regenerate(err => {
@@ -154,90 +139,102 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
     req.session.adminId = row.id;
     res.json({ ok: true, username: row.username });
   });
+}));
+
+app.post('/api/admin/logout', (req, res, next) => {
+  req.session.destroy(err => {
+    if (err) return next(err);
+    res.clearCookie('icac.sid', { httpOnly: true, sameSite: 'strict', secure: PROD });
+    res.json({ ok: true });
+  });
 });
 
-app.post('/api/admin/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
-});
-
-app.get('/api/admin/me', requireAdmin, (req, res) => {
-  const row = db.prepare('SELECT username FROM admins WHERE id = ?').get(req.session.adminId);
+app.get('/api/admin/me', requireAdmin, route(async (req, res) => {
+  const row = await db.collection('admins').findOne({ id: req.session.adminId });
+  if (!row) return res.status(401).json({ error: 'Not logged in' });
   res.json({ username: row.username });
-});
+}));
 
-app.post('/api/admin/password', requireAdmin, (req, res) => {
+app.post('/api/admin/password', requireAdmin, route(async (req, res) => {
   const current = typeof req.body?.current === 'string' ? req.body.current : '';
   const next = typeof req.body?.next === 'string' ? req.body.next : '';
-  const row = db.prepare('SELECT * FROM admins WHERE id = ?').get(req.session.adminId);
-  if (!bcrypt.compareSync(current, row.password_hash)) return res.status(400).json({ error: 'Current password is wrong' });
+  const row = await db.collection('admins').findOne({ id: req.session.adminId });
+  if (!row) return res.status(401).json({ error: 'Not logged in' });
+  if (!await bcrypt.compare(current, row.password_hash)) return res.status(400).json({ error: 'Current password is wrong' });
   if (next.length < 10) return res.status(400).json({ error: 'New password must be at least 10 characters' });
-  db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(next, 12), row.id);
+  await db.collection('admins').updateOne({ id: row.id }, { $set: { password_hash: await bcrypt.hash(next, 12) } });
   res.json({ ok: true });
-});
+}));
 
 // ---- Admin: bookings -------------------------------------------------------
-app.get('/api/admin/bookings', requireAdmin, (req, res) => {
-  const s = req.query.status;
-  const rows = STATUSES.includes(s)
-    ? db.prepare('SELECT * FROM bookings WHERE status = ? ORDER BY id DESC').all(s)
-    : db.prepare('SELECT * FROM bookings ORDER BY id DESC').all();
-  res.json(rows);
-});
+app.get('/api/admin/bookings', requireAdmin, route(async (req, res) => {
+  res.json(await db.collection('bookings').find(STATUSES.includes(req.query.status) ? { status: req.query.status } : {}, { projection: { _id: 0 } }).sort({ id: -1 }).toArray());
+}));
 
-app.patch('/api/admin/bookings/:id', requireAdmin, (req, res) => {
+app.patch('/api/admin/bookings/:id', requireAdmin, route(async (req, res) => {
   const { status, notes } = req.body || {};
   const id = Number(req.params.id);
   if (status !== undefined && !STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
-  db.prepare('UPDATE bookings SET status = COALESCE(?, status), notes = COALESCE(?, notes) WHERE id = ?')
-    .run(status ?? null, notes === undefined ? null : str(notes, 2000), id);
-  // A cancelled booking gives its time back so someone else can book it
-  if (status === 'cancelled') db.prepare('UPDATE availability SET booking_id = NULL WHERE booking_id = ?').run(id);
+  const result = await db.transaction(async session => {
+    const booking = await db.collection('bookings').findOne({ id }, { session });
+    if (!booking) return 404;
+    // A cancelled reservation may already belong to another customer.
+    if (booking.status === 'cancelled' && status && status !== 'cancelled') return 409;
+    const update = {};
+    if (status !== undefined) update.status = status;
+    if (notes !== undefined) update.notes = str(notes, 2000);
+    if (Object.keys(update).length) await db.collection('bookings').updateOne({ id }, { $set: update }, { session });
+    if (status === 'cancelled') await db.collection('availability').updateOne({ booking_id: id }, { $set: { booking_id: null } }, { session });
+    return 200;
+  });
+  if (result !== 200) return res.status(result).json({ error: result === 409 ? 'Cancelled bookings cannot be reopened. Create a new booking.' : 'Booking not found' });
   res.json({ ok: true });
-});
+}));
 
-app.delete('/api/admin/bookings/:id', requireAdmin, (req, res) => {
+app.delete('/api/admin/bookings/:id', requireAdmin, route(async (req, res) => {
   const id = Number(req.params.id);
-  db.prepare('UPDATE availability SET booking_id = NULL WHERE booking_id = ?').run(id);
-  db.prepare('DELETE FROM bookings WHERE id = ?').run(id);
+  await db.transaction(async session => {
+    await db.collection('availability').updateOne({ booking_id: id }, { $set: { booking_id: null } }, { session });
+    await db.collection('bookings').deleteOne({ id }, { session });
+  });
   res.json({ ok: true });
-});
+}));
+
+
 
 // ---- Admin: services & packages (same CRUD shape) --------------------------
-function crud(table, cols, clean) {
+function crud(table, clean) {
   const base = `/api/admin/${table}`;
-  const list = cols.join(', ');
-  const named = cols.map(c => '@' + c).join(', ');
-  const setters = cols.map(c => `${c} = @${c}`).join(', ');
-
-  app.get(base, requireAdmin, (req, res) =>
-    res.json(db.prepare(`SELECT * FROM ${table} ORDER BY sort_order, id`).all()));
-
-  app.post(base, requireAdmin, (req, res) => {
+  app.get(base, requireAdmin, route(async (req, res) => {
+    res.json(await db.collection(table).find({}, { projection: { _id: 0 } }).sort({ sort_order: 1, id: 1 }).toArray());
+  }));
+  app.post(base, requireAdmin, route(async (req, res) => {
     const d = clean(req.body || {});
     if (!d) return res.status(400).json({ error: 'Please fill in all fields' });
-    const info = db.prepare(`INSERT INTO ${table} (${list}) VALUES (${named})`).run(d);
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
-  });
-
-  app.put(`${base}/:id`, requireAdmin, (req, res) => {
+    const id = await db.nextId(table);
+    await db.collection(table).insertOne({ id, ...d });
+    res.status(201).json({ id });
+  }));
+  app.put(`${base}/:id`, requireAdmin, route(async (req, res) => {
     const d = clean(req.body || {});
     if (!d) return res.status(400).json({ error: 'Please fill in all fields' });
-    db.prepare(`UPDATE ${table} SET ${setters} WHERE id = @id`).run({ ...d, id: Number(req.params.id) });
+    await db.collection(table).updateOne({ id: Number(req.params.id) }, { $set: d });
     res.json({ ok: true });
-  });
-
-  app.delete(`${base}/:id`, requireAdmin, (req, res) => {
-    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(Number(req.params.id));
+  }));
+  app.delete(`${base}/:id`, requireAdmin, route(async (req, res) => {
+    await db.collection(table).deleteOne({ id: Number(req.params.id) });
     res.json({ ok: true });
-  });
+  }));
 }
 
+
+
 const order = b => Number.parseInt(b.sort_order, 10) || 0;
-crud('services', ['name', 'price', 'sort_order', 'active'], b => {
+crud('services', b => {
   const name = str(b.name, 120), price = str(b.price, 60);
   return name && price ? { name, price, sort_order: order(b), active: b.active ? 1 : 0 } : null;
 });
-crud('packages', ['name', 'items', 'price', 'sort_order', 'active'], b => {
+crud('packages', b => {
   const name = str(b.name, 120), items = str(b.items, 1000), price = str(b.price, 60);
   return name && items && price ? { name, items, price, sort_order: order(b), active: b.active ? 1 : 0 } : null;
 });
@@ -252,14 +249,20 @@ const toMin = t => { const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(t); return m ?
 const hhmm = n => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
 const DAY = 86400000;
 
-app.get('/api/admin/availability', requireAdmin, (req, res) => {
-  res.json(db.prepare(`SELECT a.id, a.date, a.start_time, a.end_time, a.booking_id, b.name AS customer
-    FROM availability a LEFT JOIN bookings b ON b.id = a.booking_id
-    WHERE a.date >= ? ORDER BY a.date, a.start_time`).all(saNow().date));
-});
+app.get('/api/admin/availability', requireAdmin, route(async (req, res) => {
+  const rows = await db.collection('availability').aggregate([
+    { $match: { date: { $gte: saNow().date } } }, { $sort: { date: 1, start_time: 1 } },
+    { $lookup: { from: 'bookings', localField: 'booking_id', foreignField: 'id', as: 'booking' } },
+    { $set: { customer: { $ifNull: [{ $arrayElemAt: ['$booking.name', 0] }, null] } } },
+    { $project: { _id: 0, booking: 0 } }
+  ]).toArray();
+  res.json(rows);
+}));
+
+
 
 // Add times: a date (or date range), the days of the week, a time window and how long each slot is
-app.post('/api/admin/availability', requireAdmin, (req, res) => {
+app.post('/api/admin/availability', requireAdmin, route(async (req, res) => {
   const b = req.body || {};
   const startDate = str(b.startDate, 10);
   const endDate = str(b.endDate, 10) || startDate;
@@ -276,32 +279,38 @@ app.post('/api/admin/availability', requireAdmin, (req, res) => {
   const first = Date.parse(startDate + 'T00:00:00Z'), last = Date.parse(endDate + 'T00:00:00Z');
   if ((last - first) / DAY > 92) return res.status(400).json({ error: 'Please add three months or less at a time.' });
 
-  const ins = db.prepare('INSERT OR IGNORE INTO availability (date, start_time, end_time) VALUES (?, ?, ?)');
   let added = 0;
-  db.transaction(() => {
-    for (let t = first; t <= last; t += DAY) {
-      const day = new Date(t);
-      if (!days.includes(day.getUTCDay())) continue;
-      const date = day.toISOString().slice(0, 10);
-      for (let m = from; m + length <= to; m += length) added += ins.run(date, hhmm(m), hhmm(m + length)).changes;
+  for (let t = first; t <= last; t += DAY) {
+    const day = new Date(t);
+    if (!days.includes(day.getUTCDay())) continue;
+    const date = day.toISOString().slice(0, 10);
+    for (let m = from; m + length <= to; m += length) {
+      const id = await db.nextId('availability');
+      try {
+        const result = await db.collection('availability').updateOne({ date, start_time: hhmm(m) },
+          { $setOnInsert: { id, date, start_time: hhmm(m), end_time: hhmm(m + length), booking_id: null } }, { upsert: true });
+        added += result.upsertedCount;
+      } catch (err) { if (err.code !== 11000) throw err; }
     }
-  })();
+  }
   res.json({ added });
-});
+}));
+
+
 
 // Remove every FREE time on one day (booked times stay)
-app.delete('/api/admin/availability/day/:date', requireAdmin, (req, res) => {
+app.delete('/api/admin/availability/day/:date', requireAdmin, route(async (req, res) => {
   if (!validDate(req.params.date)) return res.status(400).json({ error: 'Invalid date' });
-  db.prepare('DELETE FROM availability WHERE date = ? AND booking_id IS NULL').run(req.params.date);
+  await db.collection('availability').deleteMany({ date: req.params.date, booking_id: null });
   res.json({ ok: true });
-});
+}));
 
 // Remove one free time
-app.delete('/api/admin/availability/:id', requireAdmin, (req, res) => {
-  const r = db.prepare('DELETE FROM availability WHERE id = ? AND booking_id IS NULL').run(Number(req.params.id));
-  if (!r.changes) return res.status(409).json({ error: 'That time is booked. Cancel or delete the booking first.' });
+app.delete('/api/admin/availability/:id', requireAdmin, route(async (req, res) => {
+  const r = await db.collection('availability').deleteOne({ id: Number(req.params.id), booking_id: null });
+  if (!r.deletedCount) return res.status(409).json({ error: 'That time is booked. Cancel or delete the booking first.' });
   res.json({ ok: true });
-});
+}));
 
 // ---- Customer reviews ------------------------------------------------------
 const reviewLimiter = rateLimit({
@@ -311,15 +320,16 @@ const reviewLimiter = rateLimit({
 const REVIEW_STATUSES = ['pending', 'approved', 'hidden'];
 
 // Public: only approved reviews
-app.get('/api/reviews', (req, res) => {
-  const reviews = db.prepare(`SELECT id, name, rating, comment, created_at FROM reviews
-    WHERE status = 'approved' ORDER BY id DESC LIMIT 100`).all();
-  const stats = db.prepare("SELECT COUNT(*) AS count, AVG(rating) AS avg FROM reviews WHERE status = 'approved'").get();
-  res.json({ count: stats.count, average: stats.count ? Math.round(stats.avg * 10) / 10 : 0, reviews });
-});
+app.get('/api/reviews', route(async (req, res) => {
+  const reviews = await db.collection('reviews').find({ status: 'approved' }, { projection: { _id: 0, id: 1, name: 1, rating: 1, comment: 1, created_at: 1 } }).sort({ id: -1 }).limit(100).toArray();
+  const [stats] = await db.collection('reviews').aggregate([{ $match: { status: 'approved' } }, { $group: { _id: null, count: { $sum: 1 }, avg: { $avg: '$rating' } } }]).toArray();
+  res.json({ count: stats?.count || 0, average: stats ? Math.round(stats.avg * 10) / 10 : 0, reviews });
+}));
+
+
 
 // Public: a new review waits for your approval
-app.post('/api/reviews', reviewLimiter, (req, res) => {
+app.post('/api/reviews', reviewLimiter, route(async (req, res) => {
   const b = req.body || {};
   if (b.website) return res.status(201).json({ ok: true });   // hidden field only bots fill in
   const name = str(b.name, 60), comment = str(b.comment, 1000);
@@ -327,25 +337,25 @@ app.post('/api/reviews', reviewLimiter, (req, res) => {
   if (!name) return res.status(400).json({ error: 'Please enter your name.' });
   if (!(rating >= 1 && rating <= 5)) return res.status(400).json({ error: 'Please choose a star rating.' });
   if (comment.length < 10) return res.status(400).json({ error: 'Please write a little more (at least 10 characters).' });
-  db.prepare('INSERT INTO reviews (name, rating, comment) VALUES (?, ?, ?)').run(name, rating, comment);
+  await db.collection('reviews').insertOne({ id: await db.nextId('reviews'), name, rating, comment, status: 'pending', created_at: new Date().toISOString() });
   res.status(201).json({ ok: true });
-});
+}));
 
-app.get('/api/admin/reviews', requireAdmin, (req, res) => {
-  res.json(db.prepare("SELECT * FROM reviews ORDER BY (status = 'pending') DESC, id DESC").all());
-});
+app.get('/api/admin/reviews', requireAdmin, route(async (req, res) => {
+  res.json(await db.collection('reviews').aggregate([{ $set: { pending: { $eq: ['$status', 'pending'] } } }, { $sort: { pending: -1, id: -1 } }, { $project: { _id: 0, pending: 0 } }]).toArray());
+}));
 
-app.patch('/api/admin/reviews/:id', requireAdmin, (req, res) => {
+app.patch('/api/admin/reviews/:id', requireAdmin, route(async (req, res) => {
   const { status } = req.body || {};
   if (!REVIEW_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
-  db.prepare('UPDATE reviews SET status = ? WHERE id = ?').run(status, Number(req.params.id));
+  await db.collection('reviews').updateOne({ id: Number(req.params.id) }, { $set: { status } });
   res.json({ ok: true });
-});
+}));
 
-app.delete('/api/admin/reviews/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM reviews WHERE id = ?').run(Number(req.params.id));
+app.delete('/api/admin/reviews/:id', requireAdmin, route(async (req, res) => {
+  await db.collection('reviews').deleteOne({ id: Number(req.params.id) });
   res.json({ ok: true });
-});
+}));
 
 // ---- React production build ------------------------------------------------
 // Development: Vite runs on :5173 and forwards /api to this Express server.
@@ -376,7 +386,16 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: 'Something went wrong' });
 });
 
+async function start() {
+  await db.connect();
+  return app.listen(PORT, () => console.log(`Ice Cold Auto Aircon API listening on port ${PORT}`));
+}
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`Ice Cold Auto Aircon API on http://localhost:${PORT}  (admin: /admin)`));
+  start().catch(async err => {
+    console.error('Backend startup failed:', err.message.replace(/mongodb(?:\+srv)?:\/\/[^\s]+/g, '[MongoDB URI]'));
+    await db.close();
+    process.exitCode = 1;
+  });
 }
 module.exports = app;
+module.exports.start = start;
