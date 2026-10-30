@@ -1,0 +1,18 @@
+html, body, #root { margin: 0; min-height: 100%; }
+.public-site { min-height: 100vh; background: #0a1a2f; color: #fff; text-align: center; }
+.public-site *, .admin-app * { box-sizing: border-box; }
+.public-site .modal-content { max-height: 90vh; overflow-y: auto; text-align: left; }
+.public-site .modal-content h2 { font-size: clamp(20px, 4vw, 30px); }
+.public-site .close-button { display: block; float: right; background: none; color: #ff6600; padding: 0 6px; margin: 0; font-size: 30px; line-height: 1; }
+.public-site .close-button:hover { color: #ffa64d; background: transparent; }
+.public-site .modal form input, .public-site .modal form select, .public-site .modal form textarea { box-sizing: border-box; }
+.public-site #bookingModal { text-align: left; }
+.public-site .star-input .star-option { display: contents; }
+.public-site .star-input .star-option label { font-size: 38px; color: #4a6a8a; cursor: pointer; }
+.public-site .star-input .star-option input:checked + label { color: #ffb703; }
+.public-site .star-input .star-option:has(input:checked) ~ .star-option label { color: #ffb703; }
+.public-site .star-input .star-option label:hover { color: #ffb703; }
+.public-site .star-input .star-option:has(label:hover) ~ .star-option label { color: #ffb703; }
+.public-site .star-input .star-option input:focus-visible + label { outline: 2px solid #b9e7ff; border-radius: 4px; }
+.admin-app { min-height: 100vh; text-align: left; background: #0a1a2f; color: #e8f4ff; font-family: system-ui,Arial,sans-serif; }
+@media(max-width:700px) { .public-site section { padding: 30px 16px; } .public-site header { font-size: clamp(25px, 7vw, 50px); letter-spacing: 2px; } }

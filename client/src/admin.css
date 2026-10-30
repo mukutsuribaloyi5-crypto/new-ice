@@ -1,0 +1,131 @@
+.admin-app * { box-sizing: border-box; }
+
+
+.admin-app { margin: 0; font-family: system-ui, Arial, sans-serif; background: #0a1a2f; color: #e8f4ff; }
+
+
+.admin-app header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  background: linear-gradient(90deg, #0077b6, #99c5c4); padding: 12px 20px; }
+
+
+.admin-app header.top h1 { margin: 0; font-size: 20px; }
+
+
+.admin-app nav.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+
+
+.admin-app button, .admin-app select, .admin-app input, .admin-app textarea { font: inherit; }
+
+
+.admin-app button { background: #0077b6; color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+
+
+.admin-app button:hover { background: #0a8fd6; }
+
+
+.admin-app button.ghost { background: transparent; border: 1px solid #fff8; }
+
+
+.admin-app button.ghost.active { background: #fff3; }
+
+
+.admin-app button.danger { background: #b3261e; }
+
+
+.admin-app button.small { padding: 5px 10px; font-size: 14px; }
+
+
+.admin-app main { max-width: 1000px; margin: 0 auto; padding: 20px; }
+
+
+.admin-app h2 { margin-top: 0; color: #99c5c4; }
+
+
+.admin-app input, .admin-app select, .admin-app textarea { background: #112b4a; color: #fff; border: 1px solid #2a4a70; border-radius: 6px; padding: 8px; width: 100%; }
+
+
+.admin-app textarea { min-height: 70px; resize: vertical; }
+
+
+.admin-app .card { background: #112b4a; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+
+
+.admin-app .card.new { border-left: 4px solid #ffb703; }
+
+
+.admin-app .card.confirmed { border-left: 4px solid #00b4d8; }
+
+
+.admin-app .card.completed { border-left: 4px solid #38b000; }
+
+
+.admin-app .card.cancelled { border-left: 4px solid #777; opacity: .75; }
+
+
+.admin-app .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 10px; align-items: end; }
+
+
+.admin-app .meta { color: #9fc3dd; font-size: 14px; }
+
+
+.admin-app .meta a { color: #b9e7ff; }
+
+
+.admin-app .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+
+.admin-app .login { max-width: 360px; margin: 12vh auto; }
+
+
+.admin-app .login input { margin-bottom: 12px; }
+
+
+.admin-app label { display: block; font-size: 13px; color: #9fc3dd; margin-bottom: 4px; }
+
+
+.admin-app .check { display: flex; align-items: center; gap: 6px; }
+
+
+.admin-app .check input { width: auto; }
+
+
+.admin-app .empty { color: #9fc3dd; text-align: center; padding: 30px; }
+
+
+.admin-app #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #023e8a; padding: 10px 18px;
+  border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+
+
+.admin-app #toast.show { opacity: 1; }
+
+
+.admin-app #toast.err { background: #b3261e; }
+
+
+.admin-app .days { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+
+
+.admin-app .slots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+
+.admin-app .slot { background: #0c2240; border: 1px solid #2a4a70; border-radius: 20px; padding: 5px 12px; font-size: 14px; }
+
+
+.admin-app .slot.booked { border-color: #ffb703; color: #ffd166; }
+
+
+.admin-app .slot .x { background: transparent; padding: 0 0 0 6px; color: #ff8080; }
+
+
+
+.admin-app .card.pending { border-left: 4px solid #ffb703; }
+
+
+.admin-app .card.approved { border-left: 4px solid #38b000; }
+
+
+.admin-app .card.hidden { border-left: 4px solid #777; opacity: .75; }
+
+
+.admin-app .card.review p { white-space: pre-wrap; }
+

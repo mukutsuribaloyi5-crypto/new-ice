@@ -1,0 +1,11 @@
+.services-page { text-align: left; }
+.services-page .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+.services-page h1, .services-page h2 { color: #00b4d8; text-align: center; }
+.services-page table { width: 100%; border-collapse: collapse; margin: 20px 0; background: #023e8a; border-radius: 8px; overflow: hidden; }
+.services-page th, .services-page td { padding: 12px; text-align: left; border-bottom: 1px solid #0077b6; }
+.services-page th { background: #0077b6; color: #fff; }
+.services-page .package { background: #03045e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+.services-page .contact { text-align: center; margin-top: 30px; font-size: 18px; }
+.services-page .contact a { color: #00b4d8; text-decoration: none; }
+.services-page .footer { text-align: center; margin-top: 40px; font-size: 14px; color: #90e0ef; }
+@media(max-width:600px) { .services-page .container { padding: 15px; } .services-page th, .services-page td { padding: 9px; font-size: 14px; } }
