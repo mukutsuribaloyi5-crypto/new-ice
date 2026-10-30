@@ -58,14 +58,14 @@ Set these variables in Render, not in Git:
 
 Remove `DATABASE_PATH`. Let Render supply `PORT`. Do not attach a disk. Keep `SESSION_SECRET` stable across deploys to preserve logins. Changing `ADMIN_PASSWORD` in the environment does not reset an existing admin; use Admin → Account.
 
-After deployment, `https://YOUR-BACKEND.onrender.com/api/health` should return `{"status":"ok"}`. This endpoint checks MongoDB too; it returns HTTP 503 when the database is unavailable.
+After deployment, `https://ice-final.onrender.com/api/health` should return `{"status":"ok"}`. This endpoint checks MongoDB too; it returns HTTP 503 when the database is unavailable.
 
-The frontend uses relative `/api` requests. Add a Vercel rewrite **before** any SPA catch-all, using your actual Render hostname:
+The frontend uses relative `/api` requests. The root `vercel.json` proxies these requests to `https://ice-final.onrender.com` before applying the SPA fallback. Keep the Vercel Root Directory at the repository root (leave blank). The routing configuration is:
 
 ```json
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://YOUR-BACKEND.onrender.com/api/:path*" },
+    { "source": "/api/:path*", "destination": "https://ice-final.onrender.com/api/:path*" },
     { "source": "/((?!api(?:/|$)).*)", "destination": "/index.html" }
   ]
 }
