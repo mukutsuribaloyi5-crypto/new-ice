@@ -3,8 +3,8 @@ export default function Services() {
   const { services, packages, warning } = useCatalog();
   return <div className="services-page">
     <div className="container">
-      <h1>ICE COLD AUTO AIRCON</h1><h2>Workshop &amp; Mobile Service</h2>
-      <p style={{ textAlign: 'center' }}>Keeping you cool, wherever you are.</p>
+      <h1>ICE COLD AUTO AIRCON</h1><h2>Car Aircon Services in Gauteng</h2>
+      <p style={{ textAlign: 'center' }}>Workshop and mobile vehicle air conditioning services, including aircon regas, pressure checks, leak detection, compressor checks and sanitising.</p>
       <h2>Service Price List</h2>
       {warning && <p role="status">{warning}</p>}
       <table><thead><tr><th>Service</th><th>Price (R)</th></tr></thead><tbody>

@@ -59,6 +59,27 @@ const requireAdmin = (req, res, next) =>
 const route = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const STATUSES = ['new', 'confirmed', 'completed', 'cancelled'];
 
+async function emailBooking(booking) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.BOOKING_EMAIL_FROM;
+  if (!apiKey || !from) throw new Error('Booking email is not configured (set BREVO_API_KEY and BOOKING_EMAIL_FROM).');
+  const senderMatch = from.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
+  const sender = senderMatch ? { name: senderMatch[1], email: senderMatch[2] } : { email: from.trim() };
+  const textContent = [
+    'A new booking request was submitted on the website.', '',
+    `Name: ${booking.name}`, `Phone: ${booking.phone}`, `Email: ${booking.email}`,
+    `Vehicle: ${booking.year} ${booking.make} ${booking.model}`,
+    `Requested time: ${booking.service_date}, ${booking.service_time}`,
+    '', 'Additional information:', booking.info || '(none)',
+  ].join('\n');
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': apiKey, 'Content-Type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ sender, to: [{ email: 'bookings@icecoldauto.co.za' }], replyTo: { email: booking.email }, subject: `New booking request: ${booking.name} - ${booking.service_date}`, textContent }),
+  });
+  if (!response.ok) throw new Error(`Brevo rejected booking email (${response.status}): ${(await response.text()).slice(0, 500)}`);
+}
+
 app.get('/api/health', async (req, res) => {
   try { await db.database().command({ ping: 1 }); res.json({ status: 'ok' }); }
   catch { res.status(503).json({ status: 'unavailable' }); }
@@ -112,12 +133,17 @@ app.post('/api/bookings', bookingLimiter, route(async (req, res) => {
     const slot = await db.collection('availability').findOneAndUpdate(
       { id: slotId, booking_id: null, ...futureSlots() }, { $set: { booking_id: id } },
       { session, returnDocument: 'after' });
-    if (!slot) return false;
+    if (!slot) return null;
     await db.collection('bookings').insertOne({ id, ...d, service_date: slot.date,
       service_time: `${slot.start_time} – ${slot.end_time}`, status: 'new', notes: '', created_at: new Date().toISOString() }, { session });
-    return true;
+    return { ...d, service_date: slot.date, service_time: `${slot.start_time} - ${slot.end_time}` };
   });
   if (!booked) return res.status(409).json({ error: 'Sorry, that time has just been taken. Please choose another.' });
+  try {
+    await emailBooking(booked);
+  } catch (err) {
+    console.error('Booking email delivery failed:', err.message);
+  }
   res.status(201).json({ ok: true });
 }));
 

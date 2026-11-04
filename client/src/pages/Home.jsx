@@ -69,7 +69,7 @@ export default function Home() {
   function close() { setBookOpen(false); if (searchParams.has('book')) setSearchParams(params => { const n = new URLSearchParams(params); n.delete('book'); return n; }, { replace: true }); }
   return <>
     <PageHeader title="ICE COLD AUTO AIRCON" tagline="Stay Cool. Drive Comfort." />
-    <section><h2>Car Aircon Not Cold?</h2><p>We’ve got you covered! Stay cool and comfortable on the road.</p></section>
+    <section><h2>Car Aircon Not Cold in Gauteng?</h2><p>Ice Cold Auto Aircon provides workshop and mobile car aircon services, from regas and system checks to leak detection and repairs. Stay cool and comfortable on the road.</p></section>
     <section><h2>Our Services</h2>{warning && <p role="status">{warning}</p>}<div className="services">
       {services.map(s => <div className="card" key={s.id}><h3>{s.name}</h3><p>{s.price}</p></div>)}
     </div></section>

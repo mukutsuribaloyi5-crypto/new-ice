@@ -55,6 +55,10 @@ Set these variables in Render, not in Git:
 | `ADMIN_PASSWORD` | A strong unique initial password |
 | `SESSION_SECRET` | A unique random secret of at least 32 characters |
 | `TRUST_PROXY` | `1` |
+| `BREVO_API_KEY` | API key from Brevo for sending booking notifications |
+| `BOOKING_EMAIL_FROM` | Verified sender address in Brevo, e.g. `Ice Cold Auto Aircon <bookings@icecoldauto.co.za>` |
+
+Booking requests are saved in MongoDB and emailed to `bookings@icecoldauto.co.za` through Brevo's transactional email API. Create a Brevo API key and verify the sender domain/address in Brevo, then add both email variables to Render. Email delivery failures are written to the Render service logs; the booking remains saved and visible in Admin → Bookings.
 
 Remove `DATABASE_PATH`. Let Render supply `PORT`. Do not attach a disk. Keep `SESSION_SECRET` stable across deploys to preserve logins. Changing `ADMIN_PASSWORD` in the environment does not reset an existing admin; use Admin → Account.
 
