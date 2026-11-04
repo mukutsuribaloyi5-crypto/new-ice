@@ -139,12 +139,14 @@ app.post('/api/bookings', bookingLimiter, route(async (req, res) => {
     return { ...d, service_date: slot.date, service_time: `${slot.start_time} - ${slot.end_time}` };
   });
   if (!booked) return res.status(409).json({ error: 'Sorry, that time has just been taken. Please choose another.' });
+  let emailSent = true;
   try {
     await emailBooking(booked);
   } catch (err) {
     console.error('Booking email delivery failed:', err.message);
+    emailSent = false;
   }
-  res.status(201).json({ ok: true });
+  res.status(201).json({ ok: true, emailSent });
 }));
 
 // ---- Admin auth ------------------------------------------------------------

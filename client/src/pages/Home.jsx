@@ -29,8 +29,10 @@ function BookingModal({ open, onClose }) {
   async function submit(e) {
     e.preventDefault(); setMessage(''); setSubmitting(true);
     try {
-      await api('/bookings', { method: 'POST', body: Object.fromEntries(new FormData(e.currentTarget)) });
-      setMessage("Thanks! We've received your request and will contact you soon.");
+      const result = await api('/bookings', { method: 'POST', body: Object.fromEntries(new FormData(e.currentTarget)) });
+      setMessage(result.emailSent === false
+        ? 'Your booking was saved, but its email notification could not be sent. Please call 061 542 8985 to confirm.'
+        : "Thanks! We've received your request and will contact you soon.");
       formRef.current?.reset();
       setSlots(await api('/availability').catch(() => []));
     } catch (err) { setMessage(err.message); }
