@@ -15,4 +15,23 @@ html, body, #root { margin: 0; min-height: 100%; }
 .public-site .star-input .star-option:has(label:hover) ~ .star-option label { color: #ffb703; }
 .public-site .star-input .star-option input:focus-visible + label { outline: 2px solid #b9e7ff; border-radius: 4px; }
 .admin-app { min-height: 100vh; text-align: left; background: #0a1a2f; color: #e8f4ff; font-family: system-ui,Arial,sans-serif; }
+
+.public-site .modal form > label { display: block; margin-top: 12px; font-weight: 650; }
+.public-site .booking-required-note { margin: 0 0 8px; color: #c8d9eb; font-size: 14px; }
+.public-site .booking-required-note span,
+.public-site .modal form > label > span[aria-hidden="true"] { color: #ffb36a; }
+.public-site .modal form .optional-label { color: #c8d9eb; font-size: 14px; font-weight: 400; }
+.public-site .modal form input:focus,
+.public-site .modal form select:focus,
+.public-site .modal form textarea:focus { outline: 2px solid #75c9ff; outline-offset: 1px; }
+.public-site .booking-slot-help { padding: 12px; border-radius: 6px; background: #342719; color: #ffe0b8; line-height: 1.5; }
+.public-site .booking-slot-help a { color: #fff; font-weight: 700; }
+.public-site .modal form .booking-submit { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; margin-top: 14px; }
+.public-site .modal form .booking-submit:disabled { cursor: not-allowed; opacity: .65; }
+.public-site .booking-spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%; animation: booking-spin .8s linear infinite; }
+.public-site .form-msg.error { color: #ff9b9b; }
+.public-site .form-msg.success { color: #89e6ae; }
+.public-site .form-msg.warning { color: #ffd18a; }
+@keyframes booking-spin { to { transform: rotate(360deg); } }
+
 @media(max-width:700px) { .public-site section { padding: 30px 16px; } .public-site header { font-size: clamp(25px, 7vw, 50px); letter-spacing: 2px; } }
