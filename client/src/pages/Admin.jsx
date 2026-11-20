@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { adminApi } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { adminApi, uploadFile } from '../api';
 
-const TABS = { bookings: 'Bookings', availability: 'Availability', reviews: 'Reviews', services: 'Services', packages: 'Packages', account: 'Account' };
+const TABS = { bookings: 'Bookings', availability: 'Availability', reviews: 'Reviews', services: 'Services', packages: 'Packages', sales: 'Sales', gallery: 'Gallery', account: 'Account' };
 const STATUSES = ['new', 'confirmed', 'completed', 'cancelled'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const prettyDate = d => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -23,6 +23,7 @@ function Login({ request, notify, onLogin }) {
     finally { setBusy(false); }
   }
   return <form className="card login" onSubmit={login}>
+    <img className="admin-logo login-logo" src="/logo.jpeg" alt="Ice Cold Auto Aircon" width="132" height="72" />
     <h2>Admin login</h2>
     <label htmlFor="admin-user">Username</label><input id="admin-user" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
     <label htmlFor="admin-pass">Password</label><input id="admin-pass" autoComplete="current-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
@@ -183,6 +184,103 @@ function CatalogAdmin({ kind, request, notify }) {
       <CatalogEntry key="new" kind={kind} item={{ id: null, name: '', price: '', items: '', sort_order: rows.length, active: 1 }} request={request} notify={notify} reload={load} /></>}
   </>;
 }
+const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'];
+const todaySA = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' });
+function SaleEntry({ sale, request, notify, reload }) {
+  const isNew = !sale.id;
+  const blank = { title: '', message: '', ends_on: '', active: true };
+  const [values, setValues] = useState(isNew ? blank : { title: sale.title, message: sale.message, ends_on: sale.ends_on || '', active: Boolean(sale.active) });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setValues(old => ({ ...old, [k]: v }));
+  const status = isNew ? '' : !sale.active ? 'Hidden' : sale.ends_on && sale.ends_on < todaySA() ? 'Expired' : 'Live on website';
+  async function save(e) {
+    e.preventDefault(); setBusy(true);
+    try {
+      await request(isNew ? '/sales' : `/sales/${sale.id}`, { method: isNew ? 'POST' : 'PUT', body: values });
+      notify(isNew ? 'Sale posted' : 'Sale saved'); reload();
+      if (isNew) setValues(blank);
+    } catch (err) { notify(err.message, true); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    if (!window.confirm('Delete this sale permanently?')) return;
+    try { await request(`/sales/${sale.id}`, { method: 'DELETE' }); notify('Sale deleted'); reload(); }
+    catch (err) { notify(err.message, true); }
+  }
+  const key = sale.id || 'new';
+  return <form className={'card sale-card' + (status === 'Live on website' ? ' live' : '')} onSubmit={save}>
+    {!isNew && <p className="meta sale-status">{status}</p>}
+    <label htmlFor={`sale-title-${key}`}>Sale title</label>
+    <input id={`sale-title-${key}`} value={values.title} maxLength={120} placeholder="e.g. Summer regas special" onChange={e => set('title', e.target.value)} required />
+    <label htmlFor={`sale-message-${key}`} style={{ marginTop: 12 }}>Message customers will see</label>
+    <textarea id={`sale-message-${key}`} value={values.message} maxLength={1000} placeholder="e.g. Full aircon regas for R499 until the end of the month. Book now!" onChange={e => set('message', e.target.value)} required />
+    <div className="row" style={{ marginTop: 12 }}>
+      <div><label htmlFor={`sale-end-${key}`}>Ends on (optional)</label><input id={`sale-end-${key}`} type="date" min={todaySA()} value={values.ends_on} onChange={e => set('ends_on', e.target.value)} /></div>
+      <label className="check"><input type="checkbox" checked={values.active} onChange={e => set('active', e.target.checked)} />Show on website</label>
+    </div>
+    <div className="actions"><button className="small" type="submit" disabled={busy}>{busy ? 'Saving…' : isNew ? 'Post sale' : 'Save'}</button>
+      {!isNew && <button className="small danger" type="button" onClick={remove}>Delete</button>}</div>
+  </form>;
+}
+function SalesAdmin({ request, notify }) {
+  const { rows, loading, load } = useRows('/sales', request, notify);
+  return <><h2>Sales pop-up</h2>
+    <p className="meta">Every sale that is switched on shows in a pop-up when someone opens the website. Visitors can close it and carry on. It shows once per visit, and a sale stops showing after its end date.</p>
+    <h3>Post a new sale</h3>
+    <SaleEntry key="new" sale={{ id: null }} request={request} notify={notify} reload={load} />
+    <h3>Your sales</h3>
+    {loading ? <p className="empty">Loading sales…</p> : !rows.length ? <p className="empty">No sales posted yet.</p> : rows.map(s => <SaleEntry key={s.id} sale={s} request={request} notify={notify} reload={load} />)}
+  </>;
+}
+function GalleryAdmin({ request, notify }) {
+  const { rows, loading, load } = useRows('/gallery', request, notify);
+  const [caption, setCaption] = useState('');
+  const [progress, setProgress] = useState(null);
+  const inputRef = useRef(null);
+  async function upload(e) {
+    e.preventDefault();
+    const files = Array.from(inputRef.current?.files || []);
+    if (!files.length) return notify('Choose at least one picture or video first.', true);
+    const bad = files.find(f => !FILE_TYPES.includes(f.type));
+    if (bad) return notify(`"${bad.name}" is not supported. Use JPG, PNG, WebP, GIF, MP4, WebM or MOV.`, true);
+    let done = 0;
+    try {
+      for (const [i, file] of files.entries()) {
+        const show = percent => setProgress({ index: i + 1, total: files.length, percent });
+        show(0);
+        await uploadFile('/gallery', file, { title: caption }, show);
+        done += 1;
+      }
+      notify(done === 1 ? 'Uploaded' : `${done} files uploaded`);
+      setCaption('');
+    } catch (err) { notify(err.message, true); }
+    finally { setProgress(null); if (inputRef.current) inputRef.current.value = ''; load(); }
+  }
+  async function remove(item) {
+    if (!window.confirm('Delete this from the gallery permanently?')) return;
+    try { await request(`/gallery/${item.id}`, { method: 'DELETE' }); notify('Deleted'); load(); }
+    catch (err) { notify(err.message, true); }
+  }
+  return <><h2>Gallery</h2>
+    <p className="meta">Add pictures and videos here. They appear on the website under Gallery in the menu. Pictures can be up to 15 MB and videos up to 60 MB (JPG, PNG, WebP, GIF, MP4, WebM, MOV).</p>
+    <form className="card" onSubmit={upload}>
+      <label htmlFor="gallery-files">Pictures or videos</label>
+      <input id="gallery-files" ref={inputRef} type="file" multiple accept={FILE_TYPES.join(',')} />
+      <label htmlFor="gallery-caption" style={{ marginTop: 12 }}>Caption (optional, used for every file you pick)</label>
+      <input id="gallery-caption" value={caption} maxLength={120} placeholder="e.g. Aircon regas on a Toyota Hilux" onChange={e => setCaption(e.target.value)} />
+      <div className="actions"><button type="submit" disabled={Boolean(progress)}>{progress ? `Uploading ${progress.index} of ${progress.total}… ${progress.percent}%` : 'Upload'}</button></div>
+      {progress && <progress className="upload-progress" max="100" value={progress.percent} aria-label="Upload progress" />}
+    </form>
+    <h3>In the gallery ({rows.length})</h3>
+    {loading ? <p className="empty">Loading gallery…</p> : !rows.length ? <p className="empty">Nothing in the gallery yet.</p> : <div className="admin-gallery">
+      {rows.map(item => <div className="card gallery-admin-item" key={item.id}>
+        {item.type === 'video' ? <video src={item.url} controls preload="metadata" playsInline /> : <img src={item.url} alt={item.title || 'Gallery picture'} loading="lazy" />}
+        {item.title && <p>{item.title}</p>}
+        <div className="actions"><button className="small danger" onClick={() => remove(item)}>Delete</button></div>
+      </div>)}
+    </div>}
+  </>;
+}
 function Account({ request, notify }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -216,7 +314,7 @@ export default function Admin() {
   }
   return <div className="admin-app">
     {auth === null ? <main><p className="empty">Checking admin session…</p></main> : !auth ? <Login request={request} notify={notify} onLogin={() => setAuth(true)} /> : <>
-      <header className="top"><h1>Ice Cold Auto Aircon – Admin</h1>
+      <header className="top"><h1><img className="admin-logo" src="/logo.jpeg" alt="Ice Cold Auto Aircon" width="66" height="36" /><span>Admin</span></h1>
         <nav className="tabs" aria-label="Admin sections">{Object.entries(TABS).map(([key, name]) => <button key={key} className={'ghost' + (tab === key ? ' active' : '')} onClick={() => setTab(key)}>{name}</button>)}</nav>
         <button className="ghost" onClick={logout}>Log out</button>
       </header><main>
@@ -225,6 +323,8 @@ export default function Admin() {
         {tab === 'reviews' && <ReviewsAdmin request={request} notify={notify} />}
         {tab === 'services' && <CatalogAdmin kind="services" request={request} notify={notify} />}
         {tab === 'packages' && <CatalogAdmin kind="packages" request={request} notify={notify} />}
+        {tab === 'sales' && <SalesAdmin request={request} notify={notify} />}
+        {tab === 'gallery' && <GalleryAdmin request={request} notify={notify} />}
         {tab === 'account' && <Account request={request} notify={notify} />}
       </main>
     </>}

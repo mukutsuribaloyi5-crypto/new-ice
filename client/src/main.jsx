@@ -9,18 +9,20 @@ import Services from './pages/Services';
 import Contact from './pages/Contact';
 import FAQ from './pages/FAQ';
 import Reviews from './pages/Reviews';
+import Gallery from './pages/Gallery';
 import Admin from './pages/Admin';
 import './site.css';
 import './extra.css';
 import './services.css';
 import './admin.css';
 import './fixes.css';
+import './features.css';
 
 function Public({ children }) { return <SiteLayout>{children}</SiteLayout>; }
 function Titles() {
   const { pathname } = useLocation();
   useEffect(() => {
-    const titles = { '/': 'Ice Cold Auto Aircon', '/about': 'About Us', '/services': 'Services', '/reviews': 'Customer Reviews', '/faq': 'FAQs', '/contact': 'Contact Us', '/admin': 'Admin' };
+    const titles = { '/': 'Ice Cold Auto Aircon', '/about': 'About Us', '/services': 'Services', '/gallery': 'Gallery', '/reviews': 'Customer Reviews', '/faq': 'FAQs', '/contact': 'Contact Us', '/admin': 'Admin' };
     document.title = `${titles[pathname] || 'Ice Cold Auto Aircon'} – Ice Cold Auto Aircon`;
   }, [pathname]);
   useEffect(() => {
@@ -28,6 +30,7 @@ function Titles() {
       '/': ['Ice Cold Auto Aircon | Car Aircon Services in Gauteng', 'Ice Cold Auto Aircon provides workshop and mobile car air conditioning services across Gauteng, including aircon regas, leak checks and repairs.'],
       '/about': ['About Ice Cold Auto Aircon | Gauteng', 'Meet Ice Cold Auto Aircon. We help Gauteng motorists stay cool with mobile and workshop vehicle air conditioning services.'],
       '/services': ['Car Aircon Services & Prices | Ice Cold Auto Gauteng', 'See Ice Cold Auto Aircon prices for car aircon regas, pressure checks, leak detection, compressor checks and sanitising in Gauteng.'],
+      '/gallery': ['Gallery | Ice Cold Auto Aircon', 'Photos and videos of car aircon work by Ice Cold Auto Aircon in Gauteng.'],
       '/reviews': ['Customer Reviews | Ice Cold Auto Aircon', 'Read customer reviews of Ice Cold Auto Aircon and share your experience with our vehicle air conditioning service in Gauteng.'],
       '/faq': ['Car Aircon FAQs | Ice Cold Auto Aircon', 'Answers about Ice Cold Auto Aircon services, mobile bookings, vehicle aircon checks and service areas in Gauteng.'],
       '/contact': ['Contact & Book | Ice Cold Auto Aircon Gauteng', 'Contact or book Ice Cold Auto Aircon for mobile and workshop car air conditioning services in Gauteng. Call, WhatsApp or email us.'],
@@ -68,6 +71,7 @@ function App() {
     <Route path="/" element={<Public><Home /></Public>} />
     <Route path="/about" element={<Public><About /></Public>} />
     <Route path="/services" element={<Public><Services /></Public>} />
+    <Route path="/gallery" element={<Public><Gallery /></Public>} />
     <Route path="/reviews" element={<Public><Reviews /></Public>} />
     <Route path="/faq" element={<Public><FAQ /></Public>} />
     <Route path="/contact" element={<Public><Contact /></Public>} />

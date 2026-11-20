@@ -1,0 +1,58 @@
+/* Loaded last. Logo, sales pop-up and gallery. */
+
+/* ---------- Logo (top left of the navbar and the admin header) ---------- */
+.public-site .navbar .logo { display: flex; align-items: center; padding: 0; text-decoration: none; }
+.public-site .navbar .logo img { display: block; height: 48px; width: auto; background: #fff; border-radius: 8px; padding: 3px 8px; }
+.public-site .navbar .logo:focus-visible { outline: 3px solid #fff; outline-offset: 3px; border-radius: 8px; }
+.admin-app header.top h1 { display: flex; align-items: center; gap: 12px; }
+.admin-app .admin-logo { display: block; height: 36px; width: auto; background: #fff; border-radius: 6px; padding: 2px 6px; }
+.admin-app .login-logo { height: 72px; margin: 0 auto 12px; padding: 4px 10px; }
+
+/* ---------- Sales pop-up ---------- */
+.public-site .sale-overlay { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 10, 24, .78); overflow-y: auto; }
+.public-site .sale-popup { position: relative; width: 100%; max-width: 480px; max-height: calc(100vh - 32px); overflow-y: auto; text-align: left; background: #112b4a; border: 2px solid #00aaff; border-radius: 14px; padding: 34px 28px 24px; box-shadow: 0 20px 60px rgba(0, 0, 0, .6); animation: sale-in .35s ease-out; }
+.public-site .sale-popup::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 8px; border-radius: 12px 12px 0 0; background: linear-gradient(90deg, #0077b6, #99c5c4); }
+.public-site .sale-x { position: absolute; top: 14px; right: 10px; width: 44px; height: 44px; padding: 0; margin: 0; background: transparent; color: #b9e7ff; font-size: 32px; line-height: 1; border: 0; border-radius: 8px; cursor: pointer; }
+.public-site .sale-x:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.public-site .sale-popup button:focus-visible, .public-site .sale-popup a:focus-visible { outline: 3px solid #b9e7ff; outline-offset: 2px; }
+.public-site .sale-item + .sale-item { margin-top: 22px; padding-top: 22px; border-top: 1px solid #2a4a70; }
+.public-site .sale-popup h2 { margin: 0 40px 10px 0; color: #fff; text-transform: none; font-size: clamp(24px, 6vw, 32px); line-height: 1.15; }
+.public-site .sale-text { margin: 0; font-size: 18px; line-height: 1.5; color: #d0eaff; white-space: pre-line; }
+.public-site .sale-ends { margin: 12px 0 0; font-size: 15px; font-weight: 600; color: #ffb703; }
+.public-site .sale-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 26px; }
+.public-site .sale-book { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 26px; background: #0077b6; color: #fff; font-weight: 700; text-decoration: none; border-radius: 8px; }
+.public-site .sale-book:hover { background: #0a8fd6; }
+.public-site .sale-dismiss { min-height: 46px; margin: 0; padding: 0 22px; background: transparent; color: #d0eaff; border: 1px solid #4a6a8a; border-radius: 8px; cursor: pointer; font: inherit; }
+.public-site .sale-dismiss:hover { background: rgba(255, 255, 255, .08); }
+@keyframes sale-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+
+/* ---------- Gallery page ---------- */
+.public-site .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; max-width: 1100px; margin: 0 auto; }
+.public-site .gallery-tile { margin: 0; background: #112b4a; border-radius: 10px; overflow: hidden; box-shadow: 0 0 20px rgba(0, 0, 50, .6); }
+.public-site .gallery-tile img, .public-site .gallery-tile video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #001f3f; }
+.public-site .gallery-tile video { object-fit: contain; }
+.public-site .gallery-tile .gallery-open { display: block; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; cursor: zoom-in; }
+.public-site .gallery-tile .gallery-open:hover { background: none; }
+.public-site .gallery-tile .gallery-open:focus-visible { outline: 3px solid #b9e7ff; outline-offset: -3px; }
+.public-site .gallery-tile figcaption { padding: 10px 14px 14px; font-size: 15px; color: #d0eaff; text-align: left; }
+.public-site .lightbox { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 10, 24, .92); }
+.public-site .lightbox figure { margin: 0; max-width: 100%; text-align: center; }
+.public-site .lightbox img { display: block; max-width: 100%; max-height: calc(100vh - 110px); margin: 0 auto; border-radius: 6px; }
+.public-site .lightbox figcaption { margin-top: 12px; color: #d0eaff; }
+.public-site .lightbox-x { position: absolute; top: 10px; right: 12px; width: 48px; height: 48px; padding: 0; margin: 0; background: rgba(255, 255, 255, .12); color: #fff; font-size: 32px; line-height: 1; border: 0; border-radius: 50%; cursor: pointer; }
+.public-site .lightbox-x:hover { background: rgba(255, 255, 255, .25); }
+.public-site .lightbox-x:focus-visible { outline: 3px solid #b9e7ff; outline-offset: 2px; }
+
+/* ---------- Admin: sales and gallery ---------- */
+.admin-app h3 { color: #b9e7ff; margin: 22px 0 10px; }
+.admin-app .sale-card.live { border-left: 4px solid #38b000; }
+.admin-app .sale-status { margin: 0 0 8px; font-weight: 600; }
+.admin-app .upload-progress { width: 100%; height: 10px; margin-top: 12px; }
+.admin-app .admin-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.admin-app .gallery-admin-item { margin: 0; }
+.admin-app .gallery-admin-item img, .admin-app .gallery-admin-item video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; background: #001f3f; }
+.admin-app .gallery-admin-item video { object-fit: contain; }
+.admin-app .gallery-admin-item p { margin: 8px 0 0; font-size: 14px; color: #d0eaff; }
+
+@media (prefers-reduced-motion: reduce) { .public-site .sale-popup { animation: none; } }
+@media (max-width: 480px) { .public-site .navbar .logo img { height: 42px; } .public-site .sale-popup { padding: 30px 20px 20px; } }

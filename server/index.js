@@ -385,6 +385,122 @@ app.delete('/api/admin/reviews/:id', requireAdmin, route(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---- Sales pop-up ----------------------------------------------------------
+// Sales you post in Admin > Sales. Active, un-expired sales pop up when a visitor opens the site.
+const cleanSale = b => {
+  const title = str(b.title, 120), message = str(b.message, 1000), ends_on = str(b.ends_on, 10);
+  if (!title || !message) return { error: 'Please enter a title and a message.' };
+  if (ends_on && !validDate(ends_on)) return { error: 'Please choose a valid end date.' };
+  return { data: { title, message, ends_on, active: b.active ? 1 : 0, updated_at: new Date().toISOString() } };
+};
+
+app.get('/api/sales', route(async (req, res) => {
+  const today = saNow().date;
+  const sales = await db.collection('sales').find(
+    { active: 1, $or: [{ ends_on: '' }, { ends_on: { $gte: today } }] },
+    { projection: { _id: 0, id: 1, title: 1, message: 1, ends_on: 1, updated_at: 1 } }).sort({ id: -1 }).limit(5).toArray();
+  res.set('Cache-Control', 'no-store').json(sales);
+}));
+
+app.get('/api/admin/sales', requireAdmin, route(async (req, res) => {
+  res.json(await db.collection('sales').find({}, { projection: { _id: 0 } }).sort({ id: -1 }).toArray());
+}));
+
+app.post('/api/admin/sales', requireAdmin, route(async (req, res) => {
+  const { data, error } = cleanSale(req.body || {});
+  if (error) return res.status(400).json({ error });
+  const id = await db.nextId('sales');
+  await db.collection('sales').insertOne({ id, ...data, created_at: data.updated_at });
+  res.status(201).json({ id });
+}));
+
+app.put('/api/admin/sales/:id', requireAdmin, route(async (req, res) => {
+  const { data, error } = cleanSale(req.body || {});
+  if (error) return res.status(400).json({ error });
+  const r = await db.collection('sales').updateOne({ id: Number(req.params.id) }, { $set: data });
+  if (!r.matchedCount) return res.status(404).json({ error: 'Sale not found' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/admin/sales/:id', requireAdmin, route(async (req, res) => {
+  await db.collection('sales').deleteOne({ id: Number(req.params.id) });
+  res.json({ ok: true });
+}));
+
+// ---- Gallery (pictures and videos) -----------------------------------------
+// Files are stored in MongoDB GridFS. Each upload is one file sent as the raw request body.
+const startsWith = (b, text, at = 0) => b.subarray(at, at + text.length).toString('latin1') === text;
+const MOV_BOXES = ['ftyp', 'moov', 'mdat', 'wide', 'free', 'skip'];
+const MEDIA = {
+  'image/jpeg': { type: 'image', maxMB: 15, ok: b => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  'image/png': { type: 'image', maxMB: 15, ok: b => b[0] === 0x89 && startsWith(b, 'PNG', 1) },
+  'image/gif': { type: 'image', maxMB: 15, ok: b => startsWith(b, 'GIF8') },
+  'image/webp': { type: 'image', maxMB: 15, ok: b => startsWith(b, 'RIFF') && startsWith(b, 'WEBP', 8) },
+  'video/mp4': { type: 'video', maxMB: 60, ok: b => startsWith(b, 'ftyp', 4) },
+  'video/quicktime': { type: 'video', maxMB: 60, ok: b => MOV_BOXES.some(t => startsWith(b, t, 4)) },
+  'video/webm': { type: 'video', maxMB: 60, ok: b => b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 },
+};
+const galleryItem = g => ({ id: g.id, type: g.type, title: g.title || '', created_at: g.created_at, url: `/api/gallery/file/${g.id}` });
+const listGallery = route(async (req, res) => {
+  const rows = await db.collection('gallery').find({}, { projection: { _id: 0, id: 1, type: 1, title: 1, created_at: 1 } }).sort({ id: -1 }).toArray();
+  res.json(rows.map(galleryItem));
+});
+app.get('/api/gallery', listGallery);
+app.get('/api/admin/gallery', requireAdmin, listGallery);
+
+// Streams a file, with Range support so videos can be played and skipped through.
+app.get('/api/gallery/file/:id', route(async (req, res) => {
+  const item = await db.collection('gallery').findOne({ id: Number(req.params.id) });
+  if (!item) return res.status(404).json({ error: 'File not found' });
+  const size = item.size;
+  let start = 0, end = size - 1, status = 200;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.get('range') || '');
+  if (range && (range[1] || range[2])) {
+    if (range[1] === '') start = Math.max(size - Number(range[2]), 0);
+    else { start = Number(range[1]); if (range[2] !== '') end = Math.min(Number(range[2]), size - 1); }
+    if (start > end || start >= size) return res.status(416).set('Content-Range', `bytes */${size}`).end();
+    status = 206;
+  }
+  res.status(status).set({
+    'Content-Type': item.mime, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes',
+    'Cache-Control': 'public, max-age=86400',
+    ...(status === 206 ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}),
+  });
+  const stream = db.bucket().openDownloadStream(item.file_id, { start, end: end + 1 });
+  stream.on('error', () => res.destroy());
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
+}));
+
+app.post('/api/admin/gallery', requireAdmin, express.raw({ type: Object.keys(MEDIA), limit: '60mb' }), route(async (req, res) => {
+  const mime = (req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const spec = MEDIA[mime];
+  const buf = req.body;
+  if (!spec || !Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Unsupported file. Use JPG, PNG, WebP, GIF, MP4, WebM or MOV.' });
+  if (buf.length > spec.maxMB * 1024 * 1024) return res.status(413).json({ error: `That file is too large (${spec.type}s can be up to ${spec.maxMB} MB).` });
+  if (!spec.ok(buf)) return res.status(400).json({ error: 'That file does not look like a real picture or video.' });
+  const fileId = await new Promise((resolve, reject) => {
+    const upload = db.bucket().openUploadStream(`gallery-${Date.now()}`, { contentType: mime });
+    upload.on('error', reject);
+    upload.on('finish', () => resolve(upload.id));
+    upload.end(buf);
+  });
+  try {
+    const id = await db.nextId('gallery');
+    await db.collection('gallery').insertOne({ id, type: spec.type, mime, size: buf.length, file_id: fileId, title: str(req.query.title, 120), created_at: new Date().toISOString() });
+    res.status(201).json({ id });
+  } catch (err) {
+    await db.bucket().delete(fileId).catch(() => {});
+    throw err;
+  }
+}));
+
+app.delete('/api/admin/gallery/:id', requireAdmin, route(async (req, res) => {
+  const item = await db.collection('gallery').findOneAndDelete({ id: Number(req.params.id) });
+  if (item) await db.bucket().delete(item.file_id).catch(() => {});
+  res.json({ ok: true });
+}));
+
 // ---- React production build ------------------------------------------------
 // Development: Vite runs on :5173 and forwards /api to this Express server.
 // Production: Express serves Vite's compiled assets from dist/ on the same origin.
@@ -411,6 +527,7 @@ if (fs.existsSync(path.join(dist, 'index.html'))) {
 }
 app.use((err, req, res, next) => {
   console.error(err);
+  if (err.status === 413) return res.status(413).json({ error: 'That file is too large (pictures up to 15 MB, videos up to 60 MB).' });
   res.status(err.status || 500).json({ error: 'Something went wrong' });
 });
 

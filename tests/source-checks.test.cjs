@@ -21,3 +21,16 @@ test('private files are excluded from Git and Docker builds', () => {
   }
   for (const name of ['.env', 'data', '.local-run']) assert.ok(file('.dockerignore').split(/\r?\n/).includes(name));
 });
+test('sales pop-up and gallery endpoints, pages and menu link exist', () => {
+  const src = file('server/index.js');
+  for (const endpoint of ['/api/sales', '/api/admin/sales', '/api/gallery', '/api/gallery/file/:id', '/api/admin/gallery']) assert.ok(src.includes(endpoint), endpoint);
+  assert.match(src, /app\.post\('\/api\/admin\/gallery', requireAdmin/);   // uploads are admin-only
+  assert.ok(fs.existsSync(path.join(root, 'client/src/pages/Gallery.jsx')));
+  assert.ok(fs.existsSync(path.join(root, 'client/src/components/SalesPopup.jsx')));
+  const layout = file('client/src/components/SiteLayout.jsx');
+  assert.match(layout, /\['\/gallery', 'Gallery'\]/);
+  assert.match(layout, /<SalesPopup/);
+  assert.match(layout, /src="\/logo\.jpeg"/);
+  assert.match(file('client/src/pages/Admin.jsx'), /src="\/logo\.jpeg"/);
+  assert.ok(fs.existsSync(path.join(root, 'client/public/logo.jpeg')));
+});

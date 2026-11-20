@@ -1,4 +1,4 @@
-﻿const { MongoClient } = require('mongodb');
+﻿const { MongoClient, GridFSBucket } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const seeds = require('./seeds');
 let client;
@@ -28,13 +28,14 @@ async function initialize() {
   // Fail early on standalone MongoDB: bookings require replica-set transactions (Atlas supports these).
   const hello = await database.command({ hello: 1 });
   if (!hello.setName && hello.msg !== 'isdbgrid') throw new Error('MongoDB must be a replica set or Atlas cluster to support booking transactions.');
-  for (const name of ['admins', 'services', 'packages', 'bookings', 'availability', 'reviews']) {
+  for (const name of ['admins', 'services', 'packages', 'bookings', 'availability', 'reviews', 'sales', 'gallery']) {
     await collection(name).createIndex({ id: 1 }, { unique: true });
   }
   await collection('admins').createIndex({ username: 1 }, { unique: true });
   await collection('availability').createIndex({ date: 1, start_time: 1 }, { unique: true });
   await collection('availability').createIndex({ booking_id: 1 });
   await collection('reviews').createIndex({ status: 1, id: -1 });
+  await collection('sales').createIndex({ active: 1, id: -1 });
   await collection('web_sessions').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
   // Seed once, atomically. Deleting every catalog item does not recreate it on restart.
   await transaction(async session => {
@@ -67,7 +68,12 @@ async function close() {
   database = undefined;
   connecting = undefined;
 }
-module.exports = { connect, close, collection, nextId, transaction, database: () => {
+// Picture and video files for the gallery live in MongoDB GridFS (no disk needed).
+function bucket() {
+  if (!database) throw new Error('MongoDB is not connected');
+  return new GridFSBucket(database, { bucketName: 'gallery_files' });
+}
+module.exports = { connect, close, collection, nextId, transaction, bucket, database: () => {
   if (!database) throw new Error('MongoDB is not connected');
   return database;
 } };

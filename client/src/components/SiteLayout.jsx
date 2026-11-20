@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import SalesPopup from './SalesPopup';
 
 const links = [
-  ['/', 'Home'], ['/about', 'About'], ['/services', 'Services'],
+  ['/', 'Home'], ['/about', 'About'], ['/services', 'Services'], ['/gallery', 'Gallery'],
   ['/reviews', 'Reviews'], ['/faq', 'FAQs'], ['/contact', 'Contact'],
 ];
 export const BOOK_URL = '/?book=1';
@@ -20,7 +21,7 @@ export function SiteLayout({ children }) {
   }, []);
   return <div className="public-site">
     <nav className="navbar" ref={navRef}>
-      <div className="logo">Ice Cold Auto Aircon</div>
+      <Link className="logo" to="/"><img src="/logo.jpeg" alt="Ice Cold Auto Aircon – home" width="88" height="48" /></Link>
       <button className="menu-icon" type="button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} aria-controls="navLinks" onClick={() => setOpen(v => !v)}>
         <span className="bar" /><span className="bar" /><span className="bar" />
       </button>
@@ -30,6 +31,7 @@ export function SiteLayout({ children }) {
       </ul>
     </nav>
     {children}
+    <SalesPopup bookUrl={BOOK_URL} />
     <footer>Fast Service • Quality Work • Customer Satisfaction<br />© 2026 Ice Cold Auto Aircon — Stay Cool, Drive Comfortably!</footer>
   </div>;
 }
