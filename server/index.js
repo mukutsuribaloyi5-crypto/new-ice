@@ -386,28 +386,48 @@ app.delete('/api/admin/reviews/:id', requireAdmin, route(async (req, res) => {
 }));
 
 // ---- Sales pop-up ----------------------------------------------------------
-// Sales you post in Admin > Sales. Active, un-expired sales pop up when a visitor opens the site.
-const cleanSale = b => {
-  const title = str(b.title, 120), message = str(b.message, 1000), ends_on = str(b.ends_on, 10);
-  if (!title || !message) return { error: 'Please enter a title and a message.' };
+// Sales you post in Admin > Sales, as text or as a picture. Active, un-expired sales pop up when a visitor opens the site.
+const cleanSale = async b => {
+  const title = str(b.title, 120), ends_on = str(b.ends_on, 10);
+  const kind = b.kind === 'image' ? 'image' : 'text';
+  const base = { kind, title, ends_on, active: b.active ? 1 : 0, updated_at: new Date().toISOString() };
+  if (!title) return { error: kind === 'image' ? 'Please enter a short name for this sale.' : 'Please enter a title and a message.' };
   if (ends_on && !validDate(ends_on)) return { error: 'Please choose a valid end date.' };
-  return { data: { title, message, ends_on, active: b.active ? 1 : 0, updated_at: new Date().toISOString() } };
+  if (kind === 'text') {
+    const message = str(b.message, 1000);
+    if (!message) return { error: 'Please enter a title and a message.' };
+    return { data: { ...base, message, image_id: null } };
+  }
+  const imageId = Number(b.image_id);
+  const image = Number.isSafeInteger(imageId) && await db.collection('sale_images').findOne({ id: imageId });
+  if (!image) return { error: 'Please choose a picture for this sale.' };
+  return { data: { ...base, message: '', image_id: imageId } };
 };
+const saleOut = s => ({
+  id: s.id, kind: s.kind || 'text', title: s.title, message: s.message || '', ends_on: s.ends_on || '', updated_at: s.updated_at,
+  image_url: s.kind === 'image' && s.image_id ? `/api/sales/image/${s.image_id}` : null,
+});
+async function deleteSaleImage(imageId) {
+  if (!imageId) return;
+  const image = await db.collection('sale_images').findOneAndDelete({ id: imageId });
+  if (image) await db.bucket().delete(image.file_id).catch(() => {});
+}
 
 app.get('/api/sales', route(async (req, res) => {
   const today = saNow().date;
   const sales = await db.collection('sales').find(
     { active: 1, $or: [{ ends_on: '' }, { ends_on: { $gte: today } }] },
-    { projection: { _id: 0, id: 1, title: 1, message: 1, ends_on: 1, updated_at: 1 } }).sort({ id: -1 }).limit(5).toArray();
-  res.set('Cache-Control', 'no-store').json(sales);
+    { projection: { _id: 0, id: 1, kind: 1, title: 1, message: 1, ends_on: 1, updated_at: 1, image_id: 1 } }).sort({ id: -1 }).limit(5).toArray();
+  res.set('Cache-Control', 'no-store').json(sales.map(saleOut));
 }));
 
 app.get('/api/admin/sales', requireAdmin, route(async (req, res) => {
-  res.json(await db.collection('sales').find({}, { projection: { _id: 0 } }).sort({ id: -1 }).toArray());
+  const sales = await db.collection('sales').find({}, { projection: { _id: 0 } }).sort({ id: -1 }).toArray();
+  res.json(sales.map(s => ({ ...saleOut(s), active: s.active, image_id: s.image_id || null })));
 }));
 
 app.post('/api/admin/sales', requireAdmin, route(async (req, res) => {
-  const { data, error } = cleanSale(req.body || {});
+  const { data, error } = await cleanSale(req.body || {});
   if (error) return res.status(400).json({ error });
   const id = await db.nextId('sales');
   await db.collection('sales').insertOne({ id, ...data, created_at: data.updated_at });
@@ -415,15 +435,17 @@ app.post('/api/admin/sales', requireAdmin, route(async (req, res) => {
 }));
 
 app.put('/api/admin/sales/:id', requireAdmin, route(async (req, res) => {
-  const { data, error } = cleanSale(req.body || {});
+  const { data, error } = await cleanSale(req.body || {});
   if (error) return res.status(400).json({ error });
-  const r = await db.collection('sales').updateOne({ id: Number(req.params.id) }, { $set: data });
-  if (!r.matchedCount) return res.status(404).json({ error: 'Sale not found' });
+  const before = await db.collection('sales').findOneAndUpdate({ id: Number(req.params.id) }, { $set: data }, { returnDocument: 'before' });
+  if (!before) return res.status(404).json({ error: 'Sale not found' });
+  if (before.image_id && before.image_id !== data.image_id) await deleteSaleImage(before.image_id);   // picture was replaced or sale became text
   res.json({ ok: true });
 }));
 
 app.delete('/api/admin/sales/:id', requireAdmin, route(async (req, res) => {
-  await db.collection('sales').deleteOne({ id: Number(req.params.id) });
+  const sale = await db.collection('sales').findOneAndDelete({ id: Number(req.params.id) });
+  if (sale) await deleteSaleImage(sale.image_id);
   res.json({ ok: true });
 }));
 
@@ -499,6 +521,41 @@ app.delete('/api/admin/gallery/:id', requireAdmin, route(async (req, res) => {
   const item = await db.collection('gallery').findOneAndDelete({ id: Number(req.params.id) });
   if (item) await db.bucket().delete(item.file_id).catch(() => {});
   res.json({ ok: true });
+}));
+
+// ---- Sale pictures (the "picture" kind of sale) ----------------------------
+const IMAGE_TYPES = Object.keys(MEDIA).filter(k => MEDIA[k].type === 'image');
+app.post('/api/admin/sales/image', requireAdmin, express.raw({ type: IMAGE_TYPES, limit: '15mb' }), route(async (req, res) => {
+  const mime = (req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const spec = IMAGE_TYPES.includes(mime) ? MEDIA[mime] : null;
+  const buf = req.body;
+  if (!spec || !Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Unsupported file. Use a JPG, PNG, WebP or GIF picture.' });
+  if (buf.length > spec.maxMB * 1024 * 1024) return res.status(413).json({ error: `That picture is too large (up to ${spec.maxMB} MB).` });
+  if (!spec.ok(buf)) return res.status(400).json({ error: 'That file does not look like a real picture.' });
+  const fileId = await new Promise((resolve, reject) => {
+    const upload = db.bucket().openUploadStream(`sale-${Date.now()}`, { contentType: mime });
+    upload.on('error', reject);
+    upload.on('finish', () => resolve(upload.id));
+    upload.end(buf);
+  });
+  try {
+    const id = await db.nextId('sale_images');
+    await db.collection('sale_images').insertOne({ id, mime, size: buf.length, file_id: fileId, created_at: new Date().toISOString() });
+    res.status(201).json({ image_id: id });
+  } catch (err) {
+    await db.bucket().delete(fileId).catch(() => {});
+    throw err;
+  }
+}));
+
+app.get('/api/sales/image/:id', route(async (req, res) => {
+  const image = await db.collection('sale_images').findOne({ id: Number(req.params.id) });
+  if (!image) return res.status(404).json({ error: 'Picture not found' });
+  res.set({ 'Content-Type': image.mime, 'Content-Length': image.size, 'Cache-Control': 'public, max-age=86400' });
+  const stream = db.bucket().openDownloadStream(image.file_id);
+  stream.on('error', () => res.destroy());
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
 }));
 
 // ---- React production build ------------------------------------------------

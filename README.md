@@ -91,7 +91,7 @@ Express serves `dist/` when it exists. Production admin cookies require HTTPS at
 
 ## Sales pop-up and gallery
 
-- **Sales:** Admin → Sales. Post a title and message (optionally an end date). Every sale that is switched on appears in a pop-up when a visitor opens the site; they close it and carry on. It shows once per browser session, and a sale stops showing after its end date.
+- **Sales:** Admin → Sales. Post a sale as text (title and message) or as a picture such as a poster (optionally with an end date). Every sale that is switched on appears in a pop-up when a visitor opens the site; they close it and carry on. It shows once per browser session, and a sale stops showing after its end date.
 - **Gallery:** Admin → Gallery. Upload pictures (up to 15 MB: JPG, PNG, WebP, GIF) and videos (up to 60 MB: MP4, WebM, MOV). They appear on the public Gallery page, linked from the burger menu.
 - **Storage:** gallery files are stored in MongoDB (GridFS), so no disk is needed. The free Atlas tier holds 512 MB in total, so large videos fill it quickly. Keep videos short or compressed.
 - **Vercel proxy:** uploads go through the `/api` rewrite to Render. If a large video upload fails when using the Vercel address but works on the Render address, the proxy is the limit; upload from the Render URL's `/admin` instead.

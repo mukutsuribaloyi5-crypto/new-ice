@@ -28,7 +28,7 @@ async function initialize() {
   // Fail early on standalone MongoDB: bookings require replica-set transactions (Atlas supports these).
   const hello = await database.command({ hello: 1 });
   if (!hello.setName && hello.msg !== 'isdbgrid') throw new Error('MongoDB must be a replica set or Atlas cluster to support booking transactions.');
-  for (const name of ['admins', 'services', 'packages', 'bookings', 'availability', 'reviews', 'sales', 'gallery']) {
+  for (const name of ['admins', 'services', 'packages', 'bookings', 'availability', 'reviews', 'sales', 'gallery', 'sale_images']) {
     await collection(name).createIndex({ id: 1 }, { unique: true });
   }
   await collection('admins').createIndex({ username: 1 }, { unique: true });

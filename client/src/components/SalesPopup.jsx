@@ -39,12 +39,13 @@ export default function SalesPopup({ bookUrl }) {
   if (!open) return null;
   const close = () => setOpen(false);
   return <div className="sale-overlay" onMouseDown={e => { if (e.target === e.currentTarget) close(); }} role="presentation">
-    <div className="sale-popup" role="dialog" aria-modal="true" aria-labelledby="sale-title-0">
+    <div className={'sale-popup' + (sales.some(s => s.kind === 'image') ? ' has-image' : '')} role="dialog" aria-modal="true" aria-label="Sale notice">
       <button ref={closeRef} className="sale-x" type="button" aria-label="Close sale notice" onClick={close}>×</button>
       <div className="sale-list">
-        {sales.map((s, i) => <article className="sale-item" key={s.id}>
-          <h2 id={`sale-title-${i}`}>{s.title}</h2>
-          <p className="sale-text">{s.message}</p>
+        {sales.map(s => <article className="sale-item" key={s.id}>
+          {s.kind === 'image'
+            ? <img className="sale-image" src={s.image_url} alt={s.title} />
+            : <><h2>{s.title}</h2><p className="sale-text">{s.message}</p></>}
           {s.ends_on && <p className="sale-ends">Ends {endsOn(s.ends_on)}</p>}
         </article>)}
       </div>

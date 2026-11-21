@@ -184,23 +184,48 @@ function CatalogAdmin({ kind, request, notify }) {
       <CatalogEntry key="new" kind={kind} item={{ id: null, name: '', price: '', items: '', sort_order: rows.length, active: 1 }} request={request} notify={notify} reload={load} /></>}
   </>;
 }
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm', 'video/quicktime'];
 const todaySA = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' });
 function SaleEntry({ sale, request, notify, reload }) {
   const isNew = !sale.id;
-  const blank = { title: '', message: '', ends_on: '', active: true };
-  const [values, setValues] = useState(isNew ? blank : { title: sale.title, message: sale.message, ends_on: sale.ends_on || '', active: Boolean(sale.active) });
+  const blank = { kind: 'text', title: '', message: '', ends_on: '', active: true };
+  const [values, setValues] = useState(isNew ? blank : { kind: sale.kind || 'text', title: sale.title, message: sale.message || '', ends_on: sale.ends_on || '', active: Boolean(sale.active) });
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState('');
   const [busy, setBusy] = useState(false);
+  const [percent, setPercent] = useState(null);
+  const fileRef = useRef(null);
   const set = (k, v) => setValues(old => ({ ...old, [k]: v }));
+  useEffect(() => {
+    if (!file) { setPreview(''); return undefined; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const isImage = values.kind === 'image';
+  const shownPicture = preview || (isImage ? sale.image_url : '') || '';
   const status = isNew ? '' : !sale.active ? 'Hidden' : sale.ends_on && sale.ends_on < todaySA() ? 'Expired' : 'Live on website';
+  function pick(e) {
+    const chosen = e.target.files?.[0] || null;
+    if (chosen && !IMAGE_TYPES.includes(chosen.type)) { notify('Please choose a JPG, PNG, WebP or GIF picture.', true); e.target.value = ''; return; }
+    setFile(chosen);
+  }
   async function save(e) {
     e.preventDefault(); setBusy(true);
     try {
-      await request(isNew ? '/sales' : `/sales/${sale.id}`, { method: isNew ? 'POST' : 'PUT', body: values });
+      const body = { ...values };
+      if (isImage) {
+        if (file) { body.image_id = (await uploadFile('/sales/image', file, {}, setPercent)).image_id; }
+        else if (sale.image_id) body.image_id = sale.image_id;
+        else { notify('Please choose a picture for this sale.', true); return; }
+      }
+      await request(isNew ? '/sales' : `/sales/${sale.id}`, { method: isNew ? 'POST' : 'PUT', body });
       notify(isNew ? 'Sale posted' : 'Sale saved'); reload();
+      setFile(null); if (fileRef.current) fileRef.current.value = '';
       if (isNew) setValues(blank);
     } catch (err) { notify(err.message, true); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setPercent(null); }
   }
   async function remove() {
     if (!window.confirm('Delete this sale permanently?')) return;
@@ -210,10 +235,21 @@ function SaleEntry({ sale, request, notify, reload }) {
   const key = sale.id || 'new';
   return <form className={'card sale-card' + (status === 'Live on website' ? ' live' : '')} onSubmit={save}>
     {!isNew && <p className="meta sale-status">{status}</p>}
-    <label htmlFor={`sale-title-${key}`}>Sale title</label>
-    <input id={`sale-title-${key}`} value={values.title} maxLength={120} placeholder="e.g. Summer regas special" onChange={e => set('title', e.target.value)} required />
-    <label htmlFor={`sale-message-${key}`} style={{ marginTop: 12 }}>Message customers will see</label>
-    <textarea id={`sale-message-${key}`} value={values.message} maxLength={1000} placeholder="e.g. Full aircon regas for R499 until the end of the month. Book now!" onChange={e => set('message', e.target.value)} required />
+    <fieldset className="kind-picker"><legend>How should this sale look?</legend>
+      <label className="check"><input type="radio" name={`sale-kind-${key}`} checked={!isImage} onChange={() => set('kind', 'text')} />Text</label>
+      <label className="check"><input type="radio" name={`sale-kind-${key}`} checked={isImage} onChange={() => set('kind', 'image')} />Picture</label>
+    </fieldset>
+    <label htmlFor={`sale-title-${key}`}>{isImage ? 'Short name for this sale (only you and screen readers see it)' : 'Sale title'}</label>
+    <input id={`sale-title-${key}`} value={values.title} maxLength={120} placeholder={isImage ? 'e.g. Summer regas poster' : 'e.g. Summer regas special'} onChange={e => set('title', e.target.value)} required />
+    {isImage ? <>
+      <label htmlFor={`sale-file-${key}`} style={{ marginTop: 12 }}>Sale picture (JPG, PNG, WebP or GIF, up to 15 MB)</label>
+      <input id={`sale-file-${key}`} ref={fileRef} type="file" accept={IMAGE_TYPES.join(',')} onChange={pick} />
+      {shownPicture && <img className="sale-preview" src={shownPicture} alt="Sale picture preview" />}
+      {percent !== null && <progress className="upload-progress" max="100" value={percent} aria-label="Upload progress" />}
+    </> : <>
+      <label htmlFor={`sale-message-${key}`} style={{ marginTop: 12 }}>Message customers will see</label>
+      <textarea id={`sale-message-${key}`} value={values.message} maxLength={1000} placeholder="e.g. Full aircon regas for R499 until the end of the month. Book now!" onChange={e => set('message', e.target.value)} required />
+    </>}
     <div className="row" style={{ marginTop: 12 }}>
       <div><label htmlFor={`sale-end-${key}`}>Ends on (optional)</label><input id={`sale-end-${key}`} type="date" min={todaySA()} value={values.ends_on} onChange={e => set('ends_on', e.target.value)} /></div>
       <label className="check"><input type="checkbox" checked={values.active} onChange={e => set('active', e.target.checked)} />Show on website</label>
@@ -225,7 +261,7 @@ function SaleEntry({ sale, request, notify, reload }) {
 function SalesAdmin({ request, notify }) {
   const { rows, loading, load } = useRows('/sales', request, notify);
   return <><h2>Sales pop-up</h2>
-    <p className="meta">Every sale that is switched on shows in a pop-up when someone opens the website. Visitors can close it and carry on. It shows once per visit, and a sale stops showing after its end date.</p>
+    <p className="meta">A sale can be text or a picture (for example a poster). Every sale that is switched on shows in a pop-up when someone opens the website. Visitors can close it and carry on. It shows once per visit, and a sale stops showing after its end date.</p>
     <h3>Post a new sale</h3>
     <SaleEntry key="new" sale={{ id: null }} request={request} notify={notify} reload={load} />
     <h3>Your sales</h3>

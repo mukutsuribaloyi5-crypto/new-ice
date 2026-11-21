@@ -56,3 +56,11 @@
 
 @media (prefers-reduced-motion: reduce) { .public-site .sale-popup { animation: none; } }
 @media (max-width: 480px) { .public-site .navbar .logo img { height: 42px; } .public-site .sale-popup { padding: 30px 20px 20px; } }
+
+/* ---------- Picture sales ---------- */
+.public-site .sale-popup.has-image { max-width: 560px; padding-top: 58px; }
+.public-site .sale-image { display: block; width: 100%; max-height: 62vh; object-fit: contain; border-radius: 8px; background: #001f3f; }
+.admin-app .kind-picker { display: flex; gap: 18px; align-items: center; margin: 0 0 12px; padding: 0; border: 0; }
+.admin-app .kind-picker legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
+.admin-app .sale-preview { display: block; max-width: 260px; max-height: 200px; margin-top: 10px; border-radius: 6px; background: #001f3f; object-fit: contain; }
+
